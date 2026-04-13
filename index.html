@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jira Spreadsheet Integrator</title>
+
+<!-- ExcelJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<!-- SheetJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Chart.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<!-- JSZip for chart-preserving local sync -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+  :root {
+    --jira-blue: #0052CC;
+    --jira-blue-dark: #0747A6;
+    --jira-blue-light: #DEEBFF;
+    --jira-text: #172B4D;
+    --jira-text-muted: #6B778C;
+    --jira-text-mid: #42526E;
+    --jira-bg: #F4F5F7;
+    --jira-white: #FFFFFF;
+    --jira-border: #DFE1E6;
+    --jira-success-bg: #E3FCEF;
+    --jira-success-text: #006644;
+    --jira-success-border: #ABF5D1;
+    --jira-error-bg: #FFEBE6;
+    --jira-error-text: #BF2600;
+    --jira-error-border: #FFBDAD;
+    --jira-tag-bg: #EBECF0;
+    --jira-purple-bg: #EAE6FF;
+    --jira-purple-text: #403294;
+    --radius: 6px;
+    --shadow: 0 1px 4px rgba(0,0,0,0.1);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--jira-bg);
+    color: var(--jira-text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ---- HEADER ---- */
+  header {
+    background: var(--jira-white);
+    border-bottom: 1px solid var(--jira-border);
+    height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    box-shadow: var(--shadow);
+  }
+  .header-logo {
+    background: var(--jira-blue);
+    padding: 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 16px;
+  }
+  .header-logo svg { color: white; width: 18px; height: 18px; }
+  .header-nav { display: flex; align-items: center; gap: 16px; }
+  .header-nav span { color: var(--jira-text-mid); font-size: 13px; font-weight: 500; cursor: pointer; }
+  .header-nav span:hover { color: var(--jira-text); }
+  .header-nav .btn-create {
+    background: var(--jira-blue);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 13px;
+    border: none;
+    cursor: pointer;
+  }
+  .header-nav .btn-create:hover { background: var(--jira-blue-dark); }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--jira-blue-light); display: flex; align-items: center; justify-content: center; color: var(--jira-blue); font-weight: 700; font-size: 11px; }
+
+  /* ---- MAIN ---- */
+  main { max-width: 1152px; margin: 0 auto; padding: 24px; }
+
+  /* ---- BREADCRUMB ---- */
+  .breadcrumb { display: flex; align-items: center; gap: 8px; color: var(--jira-text-muted); font-size: 13px; margin-bottom: 16px; }
+  .breadcrumb svg { width: 14px; height: 14px; }
+
+  /* ---- PAGE TITLE ---- */
+  .page-title { font-size: 22px; font-weight: 600; margin-bottom: 16px; }
+
+  /* ---- GRID ---- */
+  .grid-main { display: grid; grid-template-columns: 1fr 320px; gap: 32px; }
+  @media (max-width: 900px) { .grid-main { grid-template-columns: 1fr; } }
+
+  /* ---- CARD ---- */
+  .card {
+    background: var(--jira-white);
+    border: 1px solid var(--jira-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+  }
+  .card:hover { box-shadow: var(--shadow-md); }
+  .card-title {
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .card-title svg { color: var(--jira-blue); width: 20px; height: 20px; }
+
+  /* ---- DROP ZONE ---- */
+  .drop-zone {
+    border: 2px dashed var(--jira-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop-zone:hover { border-color: var(--jira-blue); background: #f8faff; }
+  .drop-zone.loaded { border-color: var(--jira-success-text); background: #f0fff8; }
+  .dz-icon {
+    width: 48px; height: 48px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--jira-bg);
+    color: var(--jira-text-mid);
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .drop-zone:hover .dz-icon { background: var(--jira-blue-light); color: var(--jira-blue); }
+  .drop-zone.loaded .dz-icon { background: var(--jira-success-bg); color: var(--jira-success-text); }
+  .dz-icon svg { width: 24px; height: 24px; }
+  .dz-info h3 { font-weight: 600; font-size: 14px; }
+  .dz-info p { font-size: 12px; color: var(--jira-text-muted); margin-top: 2px; }
+
+  /* ---- BUTTONS ---- */
+  .btn {
+    width: 100%;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: none;
+    box-shadow: var(--shadow);
+  }
+  .btn svg { width: 18px; height: 18px; }
+  .btn-primary { background: var(--jira-blue); color: white; }
+  .btn-primary:hover:not(:disabled) { background: var(--jira-blue-dark); transform: scale(0.99); }
+  .btn-primary:disabled { background: var(--jira-tag-bg); color: #A5ADBA; cursor: not-allowed; box-shadow: none; }
+  .btn-secondary { background: white; color: var(--jira-blue); border: 2px solid var(--jira-blue); }
+  .btn-secondary:hover:not(:disabled) { background: var(--jira-blue-light); transform: scale(0.99); }
+  .btn-secondary:disabled { color: #A5ADBA; border-color: var(--jira-tag-bg); cursor: not-allowed; box-shadow: none; }
+
+  /* ---- TOGGLE TABS ---- */
+  .tab-switch {
+    display: flex;
+    background: var(--jira-tag-bg);
+    border-radius: var(--radius);
+    padding: 4px;
+    margin-bottom: 16px;
+  }
+  .tab-switch button {
+    flex: 1;
+    padding: 6px 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    font-weight: 700;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--jira-text-muted);
+    transition: all 0.15s;
+  }
+  .tab-switch button svg { width: 14px; height: 14px; }
+  .tab-switch button.active { background: white; color: var(--jira-blue); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+  /* ---- ALERTS ---- */
+  .alert {
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    margin-top: 12px;
+    animation: fadeIn 0.2s ease;
+  }
+  .alert svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+  .alert-error { background: var(--jira-error-bg); color: var(--jira-error-text); border: 1px solid var(--jira-error-border); }
+  .alert-success { background: var(--jira-success-bg); color: var(--jira-success-text); border: 1px solid var(--jira-success-border); }
+  .alert-info { background: var(--jira-blue-light); color: #0747A6; border: 1px solid #B3D4FF; }
+  .alert-purple { background: var(--jira-purple-bg); color: var(--jira-purple-text); border: 1px solid #B3D4FF; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+
+  /* ---- TAGS ---- */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-blue { background: var(--jira-blue-light); color: var(--jira-blue); }
+
+  /* ---- HEADER CHIPS ---- */
+  .chip-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    border: 1px solid var(--jira-border);
+    background: var(--jira-bg);
+    color: var(--jira-text-mid);
+  }
+  .chip-blue { background: var(--jira-blue-light); color: var(--jira-blue); border-color: #B3D4FF; }
+
+  /* ---- SIDEBAR DETAILS ---- */
+  .detail-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--jira-bg); }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-label { color: var(--jira-text-muted); }
+  .detail-val { font-weight: 500; display: flex; align-items: center; gap: 6px; }
+
+  /* ---- SPINNER ---- */
+  .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .spinner-blue { border-color: rgba(0,82,204,0.2); border-top-color: var(--jira-blue); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- DASHBOARD ---- */
+  #dashboard-view { display: none; }
+  .dashboard-back { display: flex; align-items: center; gap: 8px; color: var(--jira-blue); font-weight: 600; cursor: pointer; border: none; background: none; font-size: 14px; padding: 0; margin-bottom: 8px; }
+  .dashboard-back:hover { text-decoration: underline; }
+  .dashboard-back svg { width: 18px; height: 18px; }
+  .dashboard-header-right { margin-left: auto; text-align: right; }
+  .dashboard-title { font-size: 22px; font-weight: 700; color: var(--jira-text); }
+  .dashboard-subtitle { font-size: 13px; color: var(--jira-text-muted); }
+  .dash-header-row { display: flex; align-items: center; margin-bottom: 24px; }
+
+  .chart-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px; }
+  @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+  .chart-card {
+    background: white;
+    border: 1px solid var(--jira-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .chart-card-title {
+    font-size: 14px; font-weight: 700; text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    color: var(--jira-text); margin-bottom: 12px;
+  }
+  .chart-card-title svg { color: var(--jira-blue); width: 16px; height: 16px; }
+  canvas { max-width: 100%; }
+
+  .table-card {
+    background: white;
+    border: 1px solid var(--jira-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .table-card-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--jira-border);
+    background: rgba(244,245,247,0.3);
+    font-size: 16px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .table-card-header svg { color: var(--jira-blue); width: 20px; height: 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    background: var(--jira-bg);
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--jira-text-muted);
+    text-align: left;
+    border-bottom: 1px solid var(--jira-border);
+  }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--jira-border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(222,235,255,0.15); }
+  .td-priority { font-weight: 700; color: var(--jira-text); background: rgba(244,245,247,0.1); }
+  .count-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .count-badge-nonzero { background: var(--jira-success-bg); color: var(--jira-success-text); }
+  .count-badge-zero { background: var(--jira-bg); color: #A5ADBA; }
+
+  /* ---- MAPPING PREVIEW ---- */
+  .preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .preview-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--jira-text-muted); margin-bottom: 8px; }
+
+  /* ---- SETUP GUIDE ---- */
+  .guide-card { background: var(--jira-purple-bg); border: 1px solid #B3D4FF; border-radius: var(--radius); padding: 16px; margin-bottom: 24px; }
+  .guide-card-title { color: var(--jira-blue); font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .guide-card-title svg { width: 16px; height: 16px; }
+  .guide-card ol { list-style: decimal; padding-left: 20px; font-size: 12px; color: var(--jira-text); line-height: 1.8; }
+  .guide-card code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 3px; font-family: monospace; }
+
+  /* ---- SECTIONS ---- */
+  section + section { margin-top: 16px; }
+
+  /* ---- SPACE ---- */
+  .space-4 { height: 16px; }
+  .space-2 { height: 8px; }
+
+  /* ---- HINT TEXT ---- */
+  .hint { font-size: 11px; color: var(--jira-text-muted); font-style: italic; text-align: center; margin-top: 6px; }
+
+  /* ---- FOOTER ---- */
+  footer { margin-top: 48px; border-top: 1px solid var(--jira-border); padding: 24px 0; text-align: center; color: var(--jira-text-muted); font-size: 13px; }
+
+  /* ---- MODAL ---- */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    align-items: center; justify-content: center; padding: 16px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: white;
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    max-width: 480px; width: 100%;
+    padding: 24px;
+    animation: fadeIn 0.2s ease;
+  }
+  .modal-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .modal-title svg { color: var(--jira-blue); width: 20px; height: 20px; }
+  .modal-body { max-height: 300px; overflow-y: auto; margin-bottom: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .modal-tab-btn {
+    width: 100%; padding: 10px 14px; border-radius: 4px;
+    border: 1px solid var(--jira-border); background: white;
+    text-align: left; font-weight: 500; font-size: 13px;
+    cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+    transition: all 0.15s;
+  }
+  .modal-tab-btn:hover { border-color: var(--jira-blue); background: var(--jira-blue-light); }
+  .modal-tab-btn svg { color: #A5ADBA; width: 16px; height: 16px; }
+  .modal-tab-btn:hover svg { color: var(--jira-blue); }
+  .modal-footer { display: flex; justify-content: flex-end; }
+  .btn-cancel { background: none; border: none; font-size: 13px; font-weight: 500; color: var(--jira-text-muted); cursor: pointer; padding: 6px 12px; border-radius: 4px; }
+  .btn-cancel:hover { color: var(--jira-text); background: var(--jira-bg); }
+
+  /* sync hidden input */
+  #localSyncInput { display: none; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="header-logo"><i data-lucide="layout-dashboard"></i></div>
+  <nav class="header-nav">
+    <span>Projects</span>
+    <span>Filters</span>
+    <span>Dashboards</span>
+    <span>Apps</span>
+    <button class="btn-create">Create</button>
+  </nav>
+  <div class="header-right">
+    <div class="avatar">RL</div>
+  </div>
+</header>
+
+<main>
+  <!-- ============ UPLOAD VIEW ============ -->
+  <div id="upload-view">
+    <!-- Breadcrumb -->
+    <div class="breadcrumb">
+      <span>Projects</span>
+      <i data-lucide="chevron-right"></i>
+      <span>Data Integration</span>
+      <i data-lucide="chevron-right"></i>
+      <span style="color:var(--jira-text)">DI-1024 Spreadsheet Mapper</span>
+    </div>
+
+    <h1 class="page-title">Spreadsheet Format Integration &amp; Mapping</h1>
+
+    <!-- Cloud Sync Guide -->
+    <div class="guide-card">
+      <div class="guide-card-title">
+        <i data-lucide="cloud"></i>
+        Local File Processing — No API Key Required
+      </div>
+      <ol>
+        <li>Upload your <strong>Reference Format</strong> (template .xlsx with correct headers).</li>
+        <li>Upload the <strong>Jira Exported file</strong> (.xlsx) you want to process.</li>
+        <li>Click <strong>Integrate &amp; Download</strong> to generate the merged file.</li>
+        <li>Optionally use <strong>Local File Sync</strong> to merge new issues into an existing master sheet.</li>
+      </ol>
+    </div>
+
+    <!-- Action Buttons (Share / More) -->
+    <div style="display:flex;gap:8px;margin-bottom:24px;">
+      <button onclick="void(0)" style="background:var(--jira-tag-bg);border:none;padding:6px 12px;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
+        <i data-lucide="share-2" style="width:14px;height:14px;"></i> Share
+      </button>
+      <button onclick="void(0)" style="background:var(--jira-tag-bg);border:none;padding:6px 12px;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;">
+        <i data-lucide="more-horizontal" style="width:14px;height:14px;display:inline;"></i>
+      </button>
+    </div>
+
+    <div class="grid-main">
+      <!-- LEFT COLUMN -->
+      <div>
+        <section class="card">
+          <div class="card-title">
+            <i data-lucide="file-text"></i>
+            Description
+          </div>
+          <p style="color:var(--jira-text-mid);margin-bottom:20px;line-height:1.6;">
+            This tool maps data from any source spreadsheet into a predefined reference format.
+            Upload your template first, then the Jira exported file. The system automatically aligns columns
+            by header name and consolidates comments with the newest first.
+          </p>
+
+          <!-- Step 1 -->
+          <div class="drop-zone" id="refZone">
+            <input type="file" id="refFileInput" accept=".xlsx,.xls,.csv" />
+            <div class="dz-icon" id="refIcon"><i data-lucide="upload"></i></div>
+            <div class="dz-info">
+              <h3>1. Upload Reference Format</h3>
+              <p id="refLabel">Click or drag to upload the target spreadsheet template</p>
+            </div>
+          </div>
+
+          <div class="space-2"></div>
+
+          <!-- Step 2 -->
+          <div class="drop-zone" id="dataZone">
+            <input type="file" id="dataFileInput" accept=".xlsx,.xls,.csv" />
+            <div class="dz-icon" id="dataIcon"><i data-lucide="file-spreadsheet"></i></div>
+            <div class="dz-info">
+              <h3>2. Upload Jira Exported File</h3>
+              <p id="dataLabel">Click or drag to upload the Jira exported file</p>
+            </div>
+          </div>
+
+          <div class="space-4"></div>
+
+          <!-- Step 3: Integrate -->
+          <button class="btn btn-primary" id="integrateBtn" disabled onclick="processSpreadsheet()">
+            <i data-lucide="arrow-right-left"></i>
+            3. Integrate &amp; Download
+          </button>
+
+          <div class="space-2"></div>
+
+          <!-- Step 4: Sync -->
+          <div class="tab-switch">
+            <button class="active" id="tabLocal" onclick="setTab('local')">
+              <i data-lucide="file-spreadsheet"></i> Local File Sync
+            </button>
+            <button id="tabCloud" onclick="setTab('cloud')">
+              <i data-lucide="cloud"></i> Cloud Sync (requires server)
+            </button>
+          </div>
+
+          <div id="cloudNote" style="display:none;">
+            <div class="alert alert-purple" style="margin-top:0;margin-bottom:12px;">
+              <i data-lucide="lock"></i>
+              <span>Cloud Sync requires a backend server with Google API credentials. This standalone HTML version supports <strong>Local File Sync</strong> only.</span>
+            </div>
+          </div>
+
+          <input type="file" id="localSyncInput" accept=".xlsx,.xls" />
+
+          <button class="btn btn-secondary" id="syncBtn" disabled onclick="triggerLocalSync()">
+            <i data-lucide="file-spreadsheet"></i>
+            4. Select Local File &amp; Sync
+          </button>
+          <p class="hint">Merges processed data into a master .xlsx file you select and downloads the updated version.</p>
+
+          <!-- Messages -->
+          <div id="errorBox" class="alert alert-error" style="display:none;">
+            <i data-lucide="alert-circle"></i>
+            <span id="errorMsg"></span>
+          </div>
+          <div id="successBox" class="alert alert-success" style="display:none;">
+            <i data-lucide="check-circle-2"></i>
+            <span id="successMsg"></span>
+          </div>
+        </section>
+
+        <!-- Mapping Preview -->
+        <section class="card" id="previewSection" style="display:none;margin-top:16px;">
+          <div class="card-title" style="margin-bottom:12px;"><i data-lucide="table-2"></i> Mapping Preview</div>
+          <div class="preview-grid">
+            <div>
+              <div class="preview-section-title">Reference Headers</div>
+              <div class="chip-list" id="refChips"><span style="font-size:12px;color:#A5ADBA;font-style:italic;">No reference uploaded</span></div>
+            </div>
+            <div>
+              <div class="preview-section-title">Data Headers</div>
+              <div class="chip-list" id="dataChips"><span style="font-size:12px;color:#A5ADBA;font-style:italic;">No data uploaded</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- RIGHT COLUMN SIDEBAR -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--jira-text-muted);margin-bottom:16px;">Details</div>
+          <div class="detail-row">
+            <span class="detail-label">Assignee</span>
+            <span class="detail-val">
+              <span style="width:24px;height:24px;border-radius:50%;background:#FFFAE6;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#FF8B00;">AI</span>
+              Spreadsheet Bot
+            </span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Reporter</span>
+            <span class="detail-val">You</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Priority</span>
+            <span class="detail-val" style="color:#FF5630;"><i data-lucide="chevron-up" style="width:14px;height:14px;"></i> High</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Status</span>
+            <span><span class="tag tag-blue">IN PROGRESS</span></span>
+          </div>
+        </div>
+
+        <div style="background:var(--jira-purple-bg);border:1px solid #B3D4FF;border-radius:var(--radius);padding:20px;">
+          <div style="display:flex;align-items:center;gap:8px;color:var(--jira-purple-text);font-weight:700;margin-bottom:8px;">
+            <i data-lucide="lock" style="width:16px;height:16px;"></i>
+            Security Notice
+          </div>
+          <p style="font-size:12px;color:var(--jira-purple-text);line-height:1.6;">
+            All processing happens locally in your browser. Your spreadsheet data is never uploaded to any server.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== INLINE DASHBOARD PREVIEW (shown after processing) ===== -->
+    <div id="inlineDashboardSection" style="display:none;margin-top:32px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h2 style="font-size:20px;font-weight:700;color:var(--jira-text);">📊 Dashboard Preview</h2>
+          <p style="font-size:13px;color:var(--jira-text-muted);margin-top:2px;">Real-time Issue Analysis — you can still use Step 4 above to sync with a master file.</p>
+        </div>
+        <button id="viewDashboardBtn" class="btn btn-primary" style="display:none;width:auto;padding:8px 20px;" onclick="showView('dashboard')">
+          <i data-lucide="maximize-2"></i>
+          View Full Dashboard
+        </button>
+      </div>
+
+      <!-- Inline Pie Charts -->
+      <div class="chart-grid" id="inlinePieChartGrid"></div>
+
+      <!-- Inline Bar Chart -->
+      <div class="table-card" style="margin-bottom:24px;padding:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
+            <i data-lucide="bar-chart-3" style="color:var(--jira-blue);width:18px;height:18px;"></i>
+            Issue Count by Labels &amp; Status (Top 10)
+          </div>
+          <span style="font-size:11px;font-weight:600;color:var(--jira-text-muted);background:var(--jira-tag-bg);padding:3px 8px;border-radius:4px;">Stacked View</span>
+        </div>
+        <div style="height:340px;position:relative;">
+          <canvas id="inlineLabelBarChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Inline Priority Table -->
+      <div class="table-card">
+        <div class="table-card-header">
+          <i data-lucide="table-2"></i>
+          Priority vs Status Count Summary
+        </div>
+        <div style="overflow-x:auto;">
+          <table id="inlinePriorityTable"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DASHBOARD VIEW (full page) ============ -->
+  <div id="dashboard-view">
+    <div class="dash-header-row">
+      <button class="dashboard-back" onclick="showView('upload')">
+        <i data-lucide="arrow-left"></i> Back to Upload
+      </button>
+      <div class="dashboard-header-right">
+        <div class="dashboard-title">New Updated Dashboard</div>
+        <div class="dashboard-subtitle">Real-time Issue Analysis from Jira Export</div>
+      </div>
+    </div>
+
+    <!-- Pie Charts -->
+    <div class="chart-grid" id="pieChartGrid"></div>
+
+    <!-- Bar Chart -->
+    <div class="table-card" style="margin-bottom:24px;padding:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;">
+          <i data-lucide="bar-chart-3" style="color:var(--jira-blue);width:20px;height:20px;"></i>
+          Issue Count by Labels &amp; Status (Top 10)
+        </div>
+        <span style="font-size:11px;font-weight:600;color:var(--jira-text-muted);background:var(--jira-tag-bg);padding:3px 8px;border-radius:4px;">Stacked View</span>
+      </div>
+      <div style="height:360px;position:relative;">
+        <canvas id="labelBarChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Priority Table -->
+    <div class="table-card">
+      <div class="table-card-header">
+        <i data-lucide="table-2"></i>
+        Priority vs Status Count Summary
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="priorityTable"></table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- TAB SELECTION MODAL -->
+<div class="modal-overlay" id="tabModal">
+  <div class="modal">
+    <div class="modal-title"><i data-lucide="layout-dashboard"></i> Select Tab to Sync</div>
+    <p style="font-size:13px;color:var(--jira-text-muted);margin-bottom:12px;">
+      Choose the worksheet in <strong id="pendingFileName"></strong> to merge the new issues into.
+    </p>
+    <div class="modal-body" id="tabList"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p>© 2026 Spreadsheet Mapper Pro • Built with Jira-style Precision • Runs entirely in your browser</p>
+</footer>
+
+<script>
+// ====================================================
+// STATE
+// ====================================================
+const COLORS = ['#0052CC','#36B37E','#FFAB00','#FF5630','#6554C0','#00B8D9','#344563'];
+let refSheet = null;     // { name, headers, rows, workbook, arrayBuffer }
+let dataSheet = null;
+let processedRows = null;
+let pendingSyncFile = null;
+let currentBarChart = null;
+let currentPieCharts = [];
+let dashboardData = null;
+let syncMode = 'local';
+
+// ====================================================
+// LUCIDE ICONS — init after DOM ready
+// ====================================================
+document.addEventListener('DOMContentLoaded', () => { lucide.createIcons(); });
+
+// ====================================================
+// UTILS
+// ====================================================
+function showError(msg) {
+  const b = document.getElementById('errorBox');
+  document.getElementById('errorMsg').textContent = msg;
+  b.style.display = 'flex';
+  document.getElementById('successBox').style.display = 'none';
+}
+function showSuccess(msg) {
+  const b = document.getElementById('successBox');
+  document.getElementById('successMsg').textContent = msg;
+  b.style.display = 'flex';
+  document.getElementById('errorBox').style.display = 'none';
+}
+function clearMessages() {
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('successBox').style.display = 'none';
+}
+function showView(view) {
+  document.getElementById('upload-view').style.display = view === 'upload' ? '' : 'none';
+  document.getElementById('dashboard-view').style.display = view === 'dashboard' ? '' : 'none';
+  if (view === 'dashboard' && dashboardData) {
+    renderDashboard(dashboardData);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+function setTab(mode) {
+  syncMode = mode;
+  document.getElementById('tabLocal').classList.toggle('active', mode === 'local');
+  document.getElementById('tabCloud').classList.toggle('active', mode === 'cloud');
+  document.getElementById('cloudNote').style.display = mode === 'cloud' ? '' : 'none';
+}
+function updateButtons() {
+  document.getElementById('integrateBtn').disabled = !(refSheet && dataSheet);
+  document.getElementById('syncBtn').disabled = !processedRows;
+}
+function updatePreview() {
+  if (!refSheet && !dataSheet) {
+    document.getElementById('previewSection').style.display = 'none';
+    return;
+  }
+  document.getElementById('previewSection').style.display = '';
+  const rc = document.getElementById('refChips');
+  const dc = document.getElementById('dataChips');
+  rc.innerHTML = refSheet
+    ? refSheet.headers.map(h => `<span class="chip">${h}</span>`).join('')
+    : '<span style="font-size:12px;color:#A5ADBA;font-style:italic;">No reference uploaded</span>';
+  dc.innerHTML = dataSheet
+    ? dataSheet.headers.map(h => `<span class="chip chip-blue">${h}</span>`).join('')
+    : '<span style="font-size:12px;color:#A5ADBA;font-style:italic;">No data uploaded</span>';
+  lucide.createIcons();
+}
+
+// ====================================================
+// FILE UPLOAD
+// ====================================================
+document.getElementById('refFileInput').addEventListener('change', (e) => handleFileUpload(e, 'ref'));
+document.getElementById('dataFileInput').addEventListener('change', (e) => handleFileUpload(e, 'data'));
+
+async function handleFileUpload(e, type) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  clearMessages();
+  try {
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data);
+    let targetSheetName = workbook.SheetNames[0];
+    if (type === 'ref') {
+      const issueListTab = workbook.SheetNames.find(n => n.trim() === 'Issue List');
+      if (issueListTab) targetSheetName = issueListTab;
+    }
+    const worksheet = workbook.Sheets[targetSheetName];
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+    if (!jsonData.length) throw new Error(`The sheet "${targetSheetName}" is empty.`);
+    const headers = jsonData[0].map(h => String(h || ''));
+    const rows = jsonData.slice(1);
+    const sheetInfo = { name: file.name, headers, rows, workbook, arrayBuffer: data };
+    if (type === 'ref') {
+      refSheet = sheetInfo;
+      document.getElementById('refZone').classList.add('loaded');
+      document.getElementById('refIcon').innerHTML = '<i data-lucide="check-circle-2"></i>';
+      document.getElementById('refLabel').textContent = `Selected: ${file.name}`;
+    } else {
+      dataSheet = sheetInfo;
+      document.getElementById('dataZone').classList.add('loaded');
+      document.getElementById('dataIcon').innerHTML = '<i data-lucide="check-circle-2"></i>';
+      document.getElementById('dataLabel').textContent = `Selected: ${file.name}`;
+    }
+    lucide.createIcons();
+    updateButtons();
+    updatePreview();
+  } catch (err) {
+    showError(`Error reading ${type === 'ref' ? 'reference' : 'data'} file: ${err.message}`);
+  }
+}
+
+// ====================================================
+// PARSE JIRA DATE
+// ====================================================
+function parseJiraDate(comment) {
+  if (!comment) return 0;
+  const s = comment.substring(0, 200);
+  const m1 = s.match(/(\d{1,2})\/([A-Za-z]{3,9})\/(\d{2,4})\s+(\d{1,2}:\d{2}(:\d{2})?(\s*[AP]M)?)/i);
+  if (m1) {
+    const [,day,month,year,time] = m1;
+    const fy = year.length === 2 ? `20${year}` : year;
+    const d = new Date(`${day} ${month} ${fy} ${time}`);
+    if (!isNaN(d)) return d.getTime();
+  }
+  const m2 = s.match(/(\d{4})[-/](\d{2})[-/](\d{2})([ T](\d{2}:\d{2}(:\d{2})?))?/);
+  if (m2) {
+    const [,y,mo,d,,t] = m2;
+    const ds = `${y}-${mo}-${d}${t ? `T${t.trim()}` : ''}`;
+    const dt = new Date(ds);
+    if (!isNaN(dt)) return dt.getTime();
+  }
+  const m3 = s.match(/\[(\d{4})[-/](\d{2})[-/](\d{2}) (\d{2}:\d{2})\]/);
+  if (m3) {
+    const [,y,mo,d,t] = m3;
+    const dt = new Date(`${y}-${mo}-${d}T${t}`);
+    if (!isNaN(dt)) return dt.getTime();
+  }
+  return 0;
+}
+
+// ====================================================
+// PROCESS SPREADSHEET
+// ====================================================
+async function processSpreadsheet() {
+  if (!refSheet || !dataSheet) { showError('Please upload both files.'); return; }
+  const btn = document.getElementById('integrateBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Processing...';
+  clearMessages();
+
+  try {
+    const wb = refSheet.workbook;
+    let targetSheetName = wb.SheetNames.find(n => n.trim() === 'Issue List') || wb.SheetNames[0];
+
+    const commentKeywords = ['comment','評論','備註','註解','留言','回覆'];
+    const priorityFields = ['Priority','Status','Issue key','Labels','Issue Subject','Latest Update','Severity','Build Gating','ETA','Due Date','Assignee','Issue id','Comments','Comment'];
+
+    // Index data headers
+    const dataHdrs = dataSheet.headers;
+    const findDataIdx = (name) => dataHdrs.findIndex(h => h.trim().toLowerCase() === name.toLowerCase());
+    let issueKeyIdx = dataHdrs.findIndex(h => { const l=h.trim().toLowerCase(); return l==='issue key'||l==='key'; });
+    if (issueKeyIdx === -1) issueKeyIdx = dataHdrs.findIndex(h => { const l=h.trim().toLowerCase(); return l==='issue id'||l==='id'; });
+    const commentIndices = dataHdrs.reduce((a,h,i) => { if (commentKeywords.some(k=>h.trim().toLowerCase().includes(k))) a.push(i); return a; }, []);
+    const priorityIdx = dataHdrs.findIndex(h => h.trim().toLowerCase()==='priority');
+    const statusIdx = dataHdrs.findIndex(h => h.trim().toLowerCase()==='status');
+    const labelsIdx = dataHdrs.findIndex(h => h.trim().toLowerCase()==='labels');
+
+    // Group by issue key
+    const grouped = new Map();
+    dataSheet.rows.forEach(row => {
+      const key = issueKeyIdx !== -1 ? String(row[issueKeyIdx]||'').trim() : `r-${Math.random()}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(row);
+    });
+
+    // Build new rows
+    const newRows = [];
+    grouped.forEach((rows, issueKey) => {
+      const primary = rows[0];
+      const rowObj = { _comments: [] };
+
+      // Collect comments
+      const allComments = [];
+      rows.forEach(r => {
+        commentIndices.forEach(idx => {
+          let val = String(r[idx]||'').trim();
+          if (val) {
+            const parts = val.split(';');
+            if (parts.length >= 3) {
+              const mid = parts[1].trim();
+              if (mid.includes(':') || mid.length > 20) val = [parts[0], ...parts.slice(2)].join(';');
+            }
+            if (!allComments.includes(val)) allComments.push(val);
+          }
+        });
+      });
+      allComments.sort((a,b) => parseJiraDate(b) - parseJiraDate(a));
+      rowObj._comments = allComments;
+
+      refSheet.headers.forEach(refHeader => {
+        const lowerRef = refHeader.trim().toLowerCase();
+        if (commentKeywords.some(k => lowerRef.includes(k))) {
+          rowObj[refHeader] = allComments.join('\n\n');
+          return;
+        }
+        let di = findDataIdx(refHeader.trim());
+        if (di === -1 && lowerRef === 'issue subject') {
+          di = dataHdrs.findIndex(h => h.trim().toLowerCase() === 'summary');
+        }
+        if (di === -1) {
+          di = dataHdrs.findIndex(h => h.trim().toLowerCase().includes(lowerRef) || lowerRef.includes(h.trim().toLowerCase()));
+        }
+        rowObj[refHeader] = di !== -1 ? primary[di] : '';
+      });
+      newRows.push(rowObj);
+    });
+
+    processedRows = newRows;
+
+    // Build ExcelJS workbook based on reference
+    const excelWb = new ExcelJS.Workbook();
+    await excelWb.xlsx.load(refSheet.arrayBuffer);
+    let ws = excelWb.getWorksheet(targetSheetName);
+    if (!ws) ws = excelWb.worksheets[0];
+
+    // Clear rows below header
+    const rc = ws.rowCount;
+    for (let i = rc; i > 1; i--) ws.spliceRows(i, 1);
+
+    // Add data rows
+    newRows.forEach(rowObj => {
+      const row = ws.addRow(refSheet.headers.map(h => {
+        if (commentKeywords.some(k => h.trim().toLowerCase().includes(k))) return '';
+        return rowObj[h];
+      }));
+      refSheet.headers.forEach((header, ci) => {
+        const cell = row.getCell(ci + 1);
+        const lh = header.toLowerCase();
+        if (commentKeywords.some(k => lh.includes(k))) {
+          const comments = rowObj._comments;
+          if (comments.length > 0) {
+            if (comments.length === 1) {
+              cell.value = comments[0];
+              cell.font = { color: { argb: 'FF0000FF' } };
+            } else {
+              const richText = [{ text: comments[0], font: { color: { argb: 'FF0000FF' } } }];
+              for (let i = 1; i < comments.length; i++)
+                richText.push({ text: '\n\n' + comments[i], font: { color: { argb: 'FF000000' } } });
+              cell.value = { richText };
+            }
+          }
+          cell.alignment = { wrapText: true, vertical: 'top' };
+        } else {
+          cell.alignment = { vertical: 'top' };
+        }
+      });
+    });
+
+    // Build dashboard data
+    if (priorityIdx !== -1 && statusIdx !== -1) {
+      const priorities = ['P0','P1','P2'];
+      const statusCounts = {};
+      const labelCounts = {};
+      dataSheet.rows.forEach(row => {
+        const p = String(row[priorityIdx]||'').trim();
+        const s = String(row[statusIdx]||'').trim();
+        const l = labelsIdx !== -1 ? String(row[labelsIdx]||'').trim() : '';
+        if (priorities.includes(p)) {
+          if (!statusCounts[p]) statusCounts[p] = {};
+          statusCounts[p][s] = (statusCounts[p][s]||0) + 1;
+        }
+        if (l) {
+          l.split(/[\s,]+/).filter(Boolean).forEach(lb => {
+            if (!labelCounts[lb]) labelCounts[lb] = {};
+            labelCounts[lb][s] = (labelCounts[lb][s]||0) + 1;
+          });
+        }
+      });
+
+      const allStatuses = [...new Set(dataSheet.rows.map(r => String(r[statusIdx]||'').trim()).filter(Boolean))];
+      const priorityStatusData = priorities.map(p => ({
+        priority: p,
+        data: Object.entries(statusCounts[p]||{}).map(([name,value]) => ({name,value}))
+      }));
+      const labelEntries = Object.entries(labelCounts)
+        .map(([label,ss]) => ({ label, ...ss, total: Object.values(ss).reduce((a,b) => a+b, 0) }))
+        .sort((a,b) => b.total - a.total).slice(0,10);
+      const tableData = priorities.map(p => {
+        const counts = statusCounts[p] || {};
+        const row = { priority: p };
+        allStatuses.forEach(s => { row[s] = counts[s] || 0; });
+        return row;
+      });
+      dashboardData = { priorityStatus: priorityStatusData, labelStatus: labelEntries, tableData, allStatuses };
+
+      // Add "New Updated" tab to Excel
+      addDashboardSheet(excelWb, dashboardData);
+    }
+
+    // Download
+    const buffer = await excelWb.xlsx.writeBuffer();
+    downloadBlob(buffer, `integrated_${dataSheet.name}`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    showSuccess(`Data successfully consolidated into "${targetSheetName}" tab! You can now use Step 4 to sync with a master file.`);
+
+    if (dashboardData) {
+      renderInlineDashboard(dashboardData);
+      document.getElementById('inlineDashboardSection').style.display = '';
+      document.getElementById('viewDashboardBtn').style.display = 'flex';
+      // Smooth scroll to dashboard preview
+      setTimeout(() => {
+        document.getElementById('inlineDashboardSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    }
+  } catch(err) {
+    showError(`Processing failed: ${err.message}`);
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="arrow-right-left"></i> 3. Integrate &amp; Download';
+    lucide.createIcons();
+    updateButtons();
+  }
+}
+
+// ====================================================
+// ADD DASHBOARD SHEET TO EXCEL
+// ====================================================
+function addDashboardSheet(workbook, dd) {
+  let ds = workbook.getWorksheet('New Updated');
+  if (ds) workbook.removeWorksheet(ds.id);
+  ds = workbook.addWorksheet('New Updated');
+  let r = 1;
+
+  const setCell = (row, col, value, opts={}) => {
+    const c = ds.getCell(row, col);
+    c.value = value;
+    if (opts.bold) c.font = { ...(c.font||{}), bold: true, ...(opts.size?{size:opts.size}:{}), ...(opts.color?{color:{argb:opts.color}}:{}) };
+    if (opts.fill) c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:opts.fill} };
+    if (opts.border) c.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} };
+    if (opts.align) c.alignment = opts.align;
+  };
+
+  setCell(r,1,'New Updated Dashboard Summary',{bold:true,size:16,color:'FF0052CC'}); r+=2;
+  setCell(r,1,'1. Priority vs Status Count Summary',{bold:true,size:12,fill:'FFDEEBFF'}); r++;
+  const tHeaders = ['Priority', ...dd.allStatuses];
+  tHeaders.forEach((h,i) => setCell(r,i+1,h,{bold:true,fill:'FFF4F5F7',border:true,align:{horizontal:'center'}}));
+  r++;
+  dd.tableData.forEach(row => {
+    setCell(r,1,row.priority,{bold:true,border:true});
+    dd.allStatuses.forEach((s,i) => setCell(r,i+2,row[s]||0,{border:true,align:{horizontal:'center'}}));
+    r++;
+  });
+  r+=2;
+  setCell(r,1,'2. Issue Count by Labels & Status (Top 10)',{bold:true,size:12,fill:'FFDEEBFF'}); r++;
+  const lHeaders = ['Label',...dd.allStatuses,'Total'];
+  lHeaders.forEach((h,i) => setCell(r,i+1,h,{bold:true,fill:'FFF4F5F7',border:true,align:{horizontal:'center'}}));
+  r++;
+  dd.labelStatus.forEach(item => {
+    setCell(r,1,item.label,{border:true});
+    dd.allStatuses.forEach((s,i) => setCell(r,i+2,item[s]||0,{border:true,align:{horizontal:'center'}}));
+    setCell(r,dd.allStatuses.length+2,item.total,{bold:true,border:true,align:{horizontal:'center'}});
+    r++;
+  });
+  r+=2;
+  setCell(r,1,'3. Priority Status Distribution Details',{bold:true,size:12,fill:'FFDEEBFF'}); r++;
+  dd.priorityStatus.forEach(ps => {
+    setCell(r,1,`${ps.priority} Distribution`,{bold:true}); r++;
+    setCell(r,1,'Status',{bold:true,fill:'FFF4F5F7',border:true});
+    setCell(r,2,'Count',{bold:true,fill:'FFF4F5F7',border:true}); r++;
+    ps.data.forEach(d => { setCell(r,1,d.name,{border:true}); setCell(r,2,d.value,{border:true}); r++; });
+    r++;
+  });
+  ds.getColumn(1).width = 30;
+  for (let i=2;i<=10;i++) ds.getColumn(i).width = 15;
+}
+
+// ====================================================
+// SHARED CHART RENDER HELPER
+// ====================================================
+function buildPieCharts(dd, gridId, prefix, chartStore) {
+  chartStore.forEach(c => c.destroy());
+  chartStore.length = 0;
+  const pieGrid = document.getElementById(gridId);
+  pieGrid.innerHTML = '';
+  dd.priorityStatus.forEach((ps, idx) => {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `
+      <div class="chart-card-title">
+        <i data-lucide="pie-chart"></i>
+        ${ps.priority} Status Distribution
+      </div>
+      <div style="height:220px;position:relative;">
+        <canvas id="${prefix}-${idx}"></canvas>
+      </div>`;
+    pieGrid.appendChild(card);
+    lucide.createIcons();
+    const ctx = document.getElementById(`${prefix}-${idx}`).getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ps.data.map(d=>d.name),
+        datasets: [{ data: ps.data.map(d=>d.value), backgroundColor: COLORS, borderWidth: 2 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { font:{size:10}, boxWidth:12 } },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed} (${((c.parsed/c.dataset.data.reduce((a,b)=>a+b,0))*100).toFixed(0)}%)` } }
+        }
+      }
+    });
+    chartStore.push(chart);
+  });
+}
+
+function buildBarChart(dd, canvasId, existingChart) {
+  if (existingChart) existingChart.destroy();
+  const allStatuses = [...new Set(dd.labelStatus.flatMap(i => Object.keys(i).filter(k=>k!=='label'&&k!=='total')))];
+  const datasets = allStatuses.map((s,i) => ({
+    label: s,
+    data: dd.labelStatus.map(item => item[s]||0),
+    backgroundColor: COLORS[i % COLORS.length],
+    stack: 'a'
+  }));
+  return new Chart(document.getElementById(canvasId).getContext('2d'), {
+    type: 'bar',
+    data: { labels: dd.labelStatus.map(i=>i.label), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font:{size:11}, boxWidth:12 } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { stacked: true, ticks: { font:{size:10}, maxRotation:45, minRotation:30 }, grid:{display:false} },
+        y: { stacked: true, ticks: { font:{size:11} }, grid:{ color:'#EBECF0' } }
+      }
+    }
+  });
+}
+
+function buildPriorityTable(dd, tableId) {
+  const tbl = document.getElementById(tableId);
+  const statuses = dd.allStatuses;
+  const hdr = `<thead><tr><th>Priority</th>${statuses.map(s=>`<th>${s}</th>`).join('')}</tr></thead>`;
+  const body = `<tbody>${dd.tableData.map(row =>
+    `<tr><td class="td-priority">${row.priority}</td>${statuses.map(s =>
+      `<td><span class="count-badge ${row[s]>0?'count-badge-nonzero':'count-badge-zero'}">${row[s]||0}</span></td>`
+    ).join('')}</tr>`
+  ).join('')}</tbody>`;
+  tbl.innerHTML = hdr + body;
+}
+
+// ====================================================
+// RENDER INLINE DASHBOARD (stays on upload page)
+// ====================================================
+let inlinePieCharts = [];
+let inlineBarChart = null;
+
+function renderInlineDashboard(dd) {
+  inlinePieCharts.forEach(c => c.destroy());
+  inlinePieCharts = [];
+  if (inlineBarChart) { inlineBarChart.destroy(); inlineBarChart = null; }
+  buildPieCharts(dd, 'inlinePieChartGrid', 'ipie', inlinePieCharts);
+  inlineBarChart = buildBarChart(dd, 'inlineLabelBarChart', null);
+  buildPriorityTable(dd, 'inlinePriorityTable');
+}
+
+// ====================================================
+// RENDER FULL DASHBOARD (full-page view)
+// ====================================================
+function renderDashboard(dd) {
+  currentPieCharts.forEach(c => c.destroy());
+  currentPieCharts = [];
+  if (currentBarChart) { currentBarChart.destroy(); currentBarChart = null; }
+  buildPieCharts(dd, 'pieChartGrid', 'pie', currentPieCharts);
+  currentBarChart = buildBarChart(dd, 'labelBarChart', null);
+  buildPriorityTable(dd, 'priorityTable');
+}
+
+// ====================================================
+// LOCAL SYNC
+// ====================================================
+function triggerLocalSync() {
+  if (syncMode === 'cloud') {
+    showError('Cloud Sync requires a backend server. Please use Local File Sync.');
+    return;
+  }
+  document.getElementById('localSyncInput').click();
+}
+
+document.getElementById('localSyncInput').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data);
+  // Show tab selection modal
+  pendingSyncFile = file;
+  pendingSyncFile._buffer = data;
+  pendingSyncFile._sheetNames = wb.SheetNames;
+  document.getElementById('pendingFileName').textContent = file.name;
+  const list = document.getElementById('tabList');
+  list.innerHTML = wb.SheetNames.map(name =>
+    `<button class="modal-tab-btn" onclick="startLocalSync('${escapeHtml(name)}')">
+      <span>${escapeHtml(name)}</span>
+      <i data-lucide="chevron-right"></i>
+    </button>`
+  ).join('');
+  lucide.createIcons();
+  document.getElementById('tabModal').classList.add('open');
+  // Reset input so same file can be re-selected
+  e.target.value = '';
+});
+
+function closeModal() {
+  document.getElementById('tabModal').classList.remove('open');
+  // Note: do NOT null out pendingSyncFile here — startLocalSync reads it after closing modal
+}
+
+async function startLocalSync(tabName) {
+  // Capture everything we need BEFORE closing the modal
+  if (!pendingSyncFile || !pendingSyncFile._buffer) {
+    showError('Sync file lost. Please re-select the file.');
+    document.getElementById('tabModal').classList.remove('open');
+    return;
+  }
+  const syncFile    = pendingSyncFile;
+  const masterBuffer = syncFile._buffer;
+  const syncFileName = syncFile.name;
+
+  document.getElementById('tabModal').classList.remove('open');
+  pendingSyncFile = null;
+
+  if (!processedRows || !refSheet) { showError('Please process the spreadsheet first.'); return; }
+  const syncBtn = document.getElementById('syncBtn');
+  syncBtn.disabled = true;
+  syncBtn.innerHTML = '<div class="spinner spinner-blue"></div> Synchronizing...';
+  clearMessages();
+
+  try {
+    const commentKeywords = ['comment','評論','備註','註解','留言','回覆'];
+    const fieldsToUpdate  = ['priority','status','labels','assignee','issue id'];
+
+    // ── 1. Open the workbook as a ZIP ──────────────────────────────────────
+    const zip = await JSZip.loadAsync(masterBuffer);
+
+    // ── 2. Find the target sheet's XML path via workbook.xml.rels ──────────
+    const wbXml  = await zip.file('xl/workbook.xml').async('string');
+    const wbRels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+
+    // Parse sheet names from workbook.xml
+    const sheetNodes = [...wbXml.matchAll(/<sheet\b([^/]*)\/?>/gi)];
+    let targetRId = null;
+    for (const node of sheetNodes) {
+      const attrs = node[1];
+      const nameMatch = attrs.match(/name="([^"]*)"/i);
+      const ridMatch  = attrs.match(/r:id="([^"]*)"/i);
+      if (nameMatch && ridMatch) {
+        if (nameMatch[1].trim().toLowerCase() === tabName.trim().toLowerCase()) {
+          targetRId = ridMatch[1];
+          break;
+        }
+      }
+    }
+    if (!targetRId) throw new Error(`Cannot find sheet "${tabName}" in workbook.xml`);
+
+    // Resolve rId -> actual path from rels
+    const relMatch = wbRels.match(new RegExp(`Id="${targetRId}"[^>]*Target="([^"]*)"`, 'i'));
+    if (!relMatch) throw new Error(`Cannot resolve rId "${targetRId}" in workbook rels`);
+    const sheetPath = 'xl/' + relMatch[1].replace(/^\/?xl\//, '');
+
+    // ── 3. Read the shared strings table (SST) ─────────────────────────────
+    // We need SST to resolve <v> inside <c t="s"> cells (string indices)
+    // and to append new strings.
+    let sstXml = '';
+    const sstFile = zip.file('xl/sharedStrings.xml');
+    if (sstFile) sstXml = await sstFile.async('string');
+
+    // Build SST array (plain text per entry, index = position)
+    const sstEntries = [];
+    if (sstXml) {
+      const siMatches = [...sstXml.matchAll(/<si>([\s\S]*?)<\/si>/gi)];
+      for (const si of siMatches) {
+        // Extract all <t> text content, concatenate (handles <r><t>...</t></r> runs)
+        const tParts = [...si[1].matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/gi)].map(m =>
+          m[1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'")
+        );
+        sstEntries.push(tParts.join(''));
+      }
+    }
+
+    // Helper: get or add a string in SST, return its 0-based index
+    const sstMap = new Map(sstEntries.map((s,i) => [s,i]));
+    let sstDirty = false;
+    function getOrAddSst(str) {
+      const s = String(str ?? '');
+      if (sstMap.has(s)) return sstMap.get(s);
+      const idx = sstEntries.length;
+      sstEntries.push(s);
+      sstMap.set(s, idx);
+      sstDirty = true;
+      return idx;
+    }
+
+    // ── 4. Parse existing sheet XML into a row/cell map ────────────────────
+    let sheetXml = await zip.file(sheetPath).async('string');
+
+    // Helper: parse column letter(s) from A1-style ref (e.g. "AB12" → "AB")
+    const colLetters = ref => ref.match(/^([A-Z]+)/)?.[1] ?? '';
+    const colNum = letters => {
+      let n = 0;
+      for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+      return n;
+    };
+    const rowNum = ref => parseInt(ref.match(/(\d+)$/)?.[1] ?? '0', 10);
+
+    // Get cell value (resolved to string) from a <c ...><v>...</v></c> node
+    function getCellText(cNode) {
+      const tAttr = (cNode.match(/\bt="([^"]*)"/) || [])[1];
+      const vMatch = cNode.match(/<v>([^<]*)<\/v>/);
+      if (!vMatch) return '';
+      const raw = vMatch[1];
+      if (tAttr === 's') return sstEntries[parseInt(raw,10)] ?? '';
+      if (tAttr === 'str' || tAttr === 'inlineStr') return raw;
+      return raw; // number / bool / date — return raw string
+    }
+
+    // Parse all <row> blocks
+    const rowBlocks = [...sheetXml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/gi)];
+
+    // Map: rowIndex(1-based) → Map(colIndex(1-based) → cellXmlNode)
+    const rowMap = new Map(); // rowNum → { attrs, cells: Map(colNum → cellXml) }
+    for (const rb of rowBlocks) {
+      const rAttr = rb[1];
+      const rContent = rb[2];
+      const rn = parseInt((rAttr.match(/\br="(\d+)"/) || [])[1] ?? '0', 10);
+      if (!rn) continue;
+      const cellMap = new Map();
+      const cells = [...rContent.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/gi)];
+      for (const c of cells) {
+        const refAttr = (c[1].match(/\br="([A-Z]+\d+)"/) || [])[1] ?? '';
+        const cn = colNum(colLetters(refAttr));
+        if (cn) cellMap.set(cn, c[0]);
+      }
+      rowMap.set(rn, { attrs: rAttr, cells: cellMap });
+    }
+
+    // ── 5. Parse header row (row 1) ────────────────────────────────────────
+    const headerCells = rowMap.get(1)?.cells ?? new Map();
+    const masterHeaders = [];
+    const maxCol = Math.max(...headerCells.keys(), 0);
+    for (let c = 1; c <= maxCol; c++) {
+      const cNode = headerCells.get(c);
+      masterHeaders.push(cNode ? getCellText(cNode) : '');
+    }
+    while (masterHeaders.length && !masterHeaders[masterHeaders.length-1]) masterHeaders.pop();
+
+    // Find issue-key column (1-based)
+    let mkIdx = masterHeaders.findIndex(h => { const l=h.toLowerCase(); return l==='issue key'||l==='key'; }) + 1;
+    if (!mkIdx) mkIdx = masterHeaders.findIndex(h => { const l=h.toLowerCase(); return l==='issue id'||l==='id'; }) + 1;
+    if (!mkIdx) throw new Error('Cannot find "Issue key" column in the target sheet.');
+
+    // ── 6. Build processedMap ──────────────────────────────────────────────
+    const processedMap = new Map();
+    processedRows.forEach(row => {
+      let kf = Object.keys(row).find(k => { const l=k.trim().toLowerCase(); return l==='issue key'||l==='key'; });
+      if (!kf) kf = Object.keys(row).find(k => { const l=k.trim().toLowerCase(); return l==='issue id'||l==='id'; });
+      const key = kf ? String(row[kf]||'').trim() : '';
+      if (key) processedMap.set(key.toLowerCase(), row);
+    });
+
+    // ── 7. Find existing issue keys in master (rows 2+) ───────────────────
+    const masterKeys = new Set();
+    for (const [rn, rowData] of rowMap) {
+      if (rn === 1) continue;
+      const cNode = rowData.cells.get(mkIdx);
+      const key = cNode ? getCellText(cNode).trim().toLowerCase() : '';
+      if (key) masterKeys.add(key);
+    }
+
+    // ── 8. New issues ─────────────────────────────────────────────────────
+    const newIssues = processedRows.filter(row => {
+      let kf = Object.keys(row).find(k => { const l=k.trim().toLowerCase(); return l==='issue key'||l==='key'; });
+      if (!kf) kf = Object.keys(row).find(k => { const l=k.trim().toLowerCase(); return l==='issue id'||l==='id'; });
+      const key = kf ? String(row[kf]||'').trim() : '';
+      return key && !masterKeys.has(key.toLowerCase());
+    });
+
+    // ── 9. Helper: build a <c> XML node for a given value ─────────────────
+    // colLetter: e.g. "A", rowNum: e.g. 5
+    // We always write as shared-string (t="s") or inline number
+    function numToCol(n) {
+      let s = '';
+      while (n > 0) { s = String.fromCharCode(((n-1)%26)+65) + s; n = Math.floor((n-1)/26); }
+      return s;
+    }
+    function buildCellXml(colIndex, rowIndex, value) {
+      const ref = `${numToCol(colIndex)}${rowIndex}`;
+      const str = String(value ?? '');
+      if (str === '') return `<c r="${ref}"/>`;
+      const num = Number(str);
+      if (!isNaN(num) && str.trim() !== '') {
+        return `<c r="${ref}"><v>${num}</v></c>`;
+      }
+      // shared string
+      const si = getOrAddSst(str);
+      return `<c r="${ref}" t="s"><v>${si}</v></c>`;
+    }
+
+    // ── 10. Build new-issue <row> XML blocks ──────────────────────────────
+    // Find max row in current sheet
+    let maxRow = Math.max(...rowMap.keys(), 1);
+
+    // We will INSERT new rows at position 2 (after header).
+    // Existing rows 2..maxRow need their r= attr shifted up by newIssues.length
+    const shift = newIssues.length;
+
+    // Re-number existing data rows (rows 2+) in the rowMap
+    if (shift > 0) {
+      const shifted = new Map();
+      for (const [rn, rowData] of rowMap) {
+        if (rn === 1) { shifted.set(1, rowData); continue; }
+        const newRn = rn + shift;
+        // Rebuild cell refs
+        const newCells = new Map();
+        for (const [cn, cXml] of rowData.cells) {
+          // Replace r="XYZ" attribute in cell and any formula refs
+          const newCxml = cXml.replace(/\br="([A-Z]+)(\d+)"/g, (m, col, row) => `r="${col}${parseInt(row,10)+shift}"`);
+          newCells.set(cn, newCxml);
+        }
+        shifted.set(newRn, { attrs: rowData.attrs.replace(/\br="(\d+)"/, `r="${newRn}"`), cells: newCells });
+      }
+      rowMap.clear();
+      for (const [k,v] of shifted) rowMap.set(k, v);
+      maxRow += shift;
+    }
+
+    // Build new-issue rows (inserted at rows 2 .. 1+shift)
+    newIssues.forEach((issue, idx) => {
+      const rn = 2 + idx;
+      const cellMap = new Map();
+      masterHeaders.forEach((header, ci) => {
+        const colIndex = ci + 1;
+        const lh = header.toLowerCase();
+        let val = '';
+        if (commentKeywords.some(k => lh.includes(k))) {
+          val = (issue._comments || []).join('\n\n');
+        } else {
+          const rf = Object.keys(issue).find(k => !k.startsWith('_') && k.trim().toLowerCase() === lh);
+          val = rf ? String(issue[rf] ?? '') : '';
+        }
+        cellMap.set(colIndex, buildCellXml(colIndex, rn, val));
+      });
+      rowMap.set(rn, { attrs: `r="${rn}"`, cells: cellMap });
+    });
+
+    // ── 11. Update existing rows: priority/status/labels/assignee/comments ─
+    let synced = 0;
+    for (const [rn, rowData] of rowMap) {
+      if (rn === 1) continue;
+      const kCell = rowData.cells.get(mkIdx);
+      const key   = kCell ? getCellText(kCell).trim().toLowerCase() : '';
+      const pr    = processedMap.get(key);
+      if (!pr) continue;
+      synced++;
+
+      masterHeaders.forEach((header, ci) => {
+        const colIndex = ci + 1;
+        const lh = header.toLowerCase();
+
+        // Update standard synced fields
+        const mf = fieldsToUpdate.find(f => lh.includes(f));
+        if (mf) {
+          const rf = Object.keys(pr).find(k => !k.startsWith('_') && k.trim().toLowerCase().includes(mf));
+          if (rf) {
+            rowData.cells.set(colIndex, buildCellXml(colIndex, rn, pr[rf]));
+          }
+        }
+
+        // Update comment fields (plain text — rich text colour not possible in raw XML without styles)
+        if (commentKeywords.some(k => lh.includes(k))) {
+          const comments = pr._comments || [];
+          const val = comments.join('\n\n');
+          rowData.cells.set(colIndex, buildCellXml(colIndex, rn, val));
+        }
+      });
+    }
+
+    // ── 12. Reconstruct sheet XML ──────────────────────────────────────────
+    // Strategy: keep everything outside <sheetData>…</sheetData> verbatim,
+    // only replace the sheetData content.
+
+    const sdStart = sheetXml.indexOf('<sheetData');
+    const sdEnd   = sheetXml.indexOf('</sheetData>') + '</sheetData>'.length;
+    const before  = sheetXml.substring(0, sdStart);
+    const after   = sheetXml.substring(sdEnd);
+
+    // Build new sheetData
+    const sortedRows = [...rowMap.keys()].sort((a,b) => a-b);
+    const rowsXml = sortedRows.map(rn => {
+      const rowData = rowMap.get(rn);
+      const sortedCells = [...rowData.cells.keys()].sort((a,b)=>a-b);
+      const cellsXml = sortedCells.map(cn => rowData.cells.get(cn)).join('');
+      return `<row r="${rn}" ${rowData.attrs.replace(/\br="\d+"\s*/,'')}>${cellsXml}</row>`;
+    }).join('');
+
+    const newSheetXml = `${before}<sheetData>${rowsXml}</sheetData>${after}`;
+    zip.file(sheetPath, newSheetXml);
+
+    // ── 13. Update SST if dirty ────────────────────────────────────────────
+    if (sstDirty && sstFile) {
+      const count = sstEntries.length;
+      const siXml = sstEntries.map(s => {
+        const escaped = s
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;');
+        // preserve newlines as <t xml:space="preserve">
+        return `<si><t xml:space="preserve">${escaped}</t></si>`;
+      }).join('');
+      const newSst = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+        `count="${count}" uniqueCount="${count}">${siXml}</sst>`;
+      zip.file('xl/sharedStrings.xml', newSst);
+    }
+
+    // ── 14. Generate and download ──────────────────────────────────────────
+    const outputBuffer = await zip.generateAsync({
+      type: 'arraybuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    });
+
+    downloadBlob(outputBuffer, syncFileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    const added   = newIssues.length;
+    const updated = synced - added < 0 ? 0 : synced - added;
+    showSuccess(`Merged ${added} new issues and updated ${updated} existing issues into ${syncFileName}! Charts and other sheets are fully preserved.`);
+
+  } catch(err) {
+    showError(`Sync failed: ${err.message}`);
+    console.error(err);
+  } finally {
+    syncBtn.disabled = false;
+    syncBtn.innerHTML = '<i data-lucide="file-spreadsheet"></i> 4. Select Local File &amp; Sync';
+    lucide.createIcons();
+    updateButtons();
+  }
+}
+
+
+// ====================================================
+// DOWNLOAD HELPER
+// ====================================================
+function downloadBlob(buffer, filename, mime) {
+  const blob = new Blob([buffer], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
